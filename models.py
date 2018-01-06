@@ -371,5 +371,6 @@ class ModelsManager:
         self.add_model('lr', LogisticRegression, 'kyoto2007')
 
 
-mm = ModelsManager()
-print(mm.get_metric_result('average_precision_score', 'gb'))
+if __name__ == '__main__':
+    mm = ModelsManager()
+    print(mm.get_metric_result('average_precision_score', 'gb'))
