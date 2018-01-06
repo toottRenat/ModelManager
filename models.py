@@ -1,4 +1,3 @@
-
 import os
 import pandas as pd
 import numpy as np
@@ -9,13 +8,12 @@ from sklearn.preprocessing import LabelEncoder
 from sklearn.model_selection import train_test_split
 from sklearn.ensemble import GradientBoostingClassifier
 from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import accuracy_score, roc_curve, auc, precision_recall_fscore_support,\
+from sklearn.metrics import accuracy_score, roc_curve, auc, precision_recall_fscore_support, \
     precision_recall_curve, average_precision_score
-
 
 # тут лежат разные параметры, которые влияют на работу системы
 
-CSV_WALKING_PATH = 'Kyoto2007'  # путь с файлами для обучение моделей
+CSV_WALKING_PATH = os.path.split(__file__)[0] + '/Kyoto2007'  # путь с файлами для обучение моделей
 
 
 def fit_label_encoder(not_float):
@@ -24,7 +22,6 @@ def fit_label_encoder(not_float):
 
 
 def check_name_correctness(func):
-
     def checking_wrapper(self, name, *args, **kwargs):
         if type(name) is not str:
             raise ValueError('Name of model should have type "str"')
@@ -37,9 +34,8 @@ def check_name_correctness(func):
 
 class DataProcessor:
     # todo мб сюда нужно будет добавить методы для скейла, разной обработки и т.д.
-    using_features = ['_DestinationPortNumber_', '_SourcePortNumber_',
-                      '_Service_', '_Count_', '_SerrorRate_', '_DstHostCount_',
-                      '_DstHostSRVCount_', '_DstHostSameSRCPortRate_', '_SameSRVRate_',
+    using_features = ['_DestinationPortNumber_', '_SourcePortNumber_', '_Service_', '_Count_', '_SerrorRate_',
+                      '_DstHostCount_', '_DstHostSRVCount_', '_DstHostSameSRCPortRate_', '_SameSRVRate_',
                       '_Label_']  # последней всегда должны идти лейблы (или можно сделать их отдельную передачу)
 
     def __init__(self, name, attack_ratio=0.05, attack_label=-1, processing_mode=0,
@@ -83,7 +79,7 @@ class DataProcessor:
     def fetch_classes(self):
         if self.num_classes == 2:
             self.data[self.using_features[-1]] = self.data[self.using_features[-1]].apply(
-                lambda x: self.attack_label if x*self.attack_label > 0 else x
+                lambda x: self.attack_label if x * self.attack_label > 0 else x
             )
 
     def get_labels(self):
@@ -197,7 +193,7 @@ class Model:
 
         self.__check_model_correctness(model)
 
-        self.train_features, self.test_features,\
+        self.train_features, self.test_features, \
         self.train_labels, self.test_labels = train_test_split(features,
                                                                labels,
                                                                test_size=test_size)
@@ -217,6 +213,13 @@ class Model:
             model.predict()
         except AttributeError:
             raise TypeError('Model "%s" has no predict method.' % self.name)
+        except TypeError:
+            pass
+
+        try:
+            model.predict_proba()
+        except AttributeError:
+            print('Warning:\nModel "%s" has no predict_proba method.' % self.name)
         except TypeError:
             pass
 
@@ -283,17 +286,23 @@ class ModelsManager:
         for name, metric in zip(default_metric_names, default_metrics):
             self.add_metric(name, metric)
 
+    def predict(self, model_name, data_name):
+        return self.models[model_name].predict(self.data[data_name].get_features())
+
+    def predict_proba(self, model_name, data_name):
+        return self.models[model_name].predict_proba(self.data[data_name].get_features())
+
     @check_name_correctness
     def get_metric_result(self, name, model_name, data_name=None, *args, **kwargs):
 
         def metric_not_found():
             print('Metric named "%s" doesnt exist' % name)
-            print('Available models:')
+            print('Available metrics:')
             for metric in self.metrics.keys():
                 print(metric)
 
         def model_not_found():
-            print('Model named "%s" doesnt exist' % name)
+            print('Model named "%s" doesnt exist' % model_name)
             print('Available models:')
             for metric in self.models.keys():
                 print(metric)
@@ -368,7 +377,7 @@ class ModelsManager:
     def add_data(self, name, replace=False, **kwargs):
 
         def really_add_data(data_dict):
-            dp = DataProcessor(name, *kwargs)  # mb nada **
+            dp = DataProcessor(name, **kwargs)  # mb nada **
             if dp is not None:
                 data_dict[name] = dp
             else:
@@ -386,12 +395,12 @@ class ModelsManager:
             really_add_data(self.data)
 
     def load_gradient_boosting(self):
-        self.add_model('gb', GradientBoostingClassifier, 'kyoto2007')
+        self.add_model('gb_95-5', GradientBoostingClassifier, 'kyoto2007')
 
     def load_logistic_regression(self):
-        self.add_model('lr', LogisticRegression, 'kyoto2007')
+        self.add_model('lr_95-5', LogisticRegression, 'kyoto2007')
 
 
 if __name__ == '__main__':
     mm = ModelsManager()
-    print(mm.get_metric_result('average_precision_score', 'gb'))
+    print(mm.get_metric_result('average_precision_score', 'gb_95-5'))
