@@ -35,15 +35,6 @@ def check_name_correctness(func):
     return checking_wrapper
 
 
-"""
-processing_mode:
-0 - данные для обучения читаются из файлов в заданной папке (нерекурсивно), type(training_data) is str
-1 - training_data is iterable
-2 - 
-3 - 
-"""
-
-
 class DataProcessor:
     # todo мб сюда нужно будет добавить методы для скейла, разной обработки и т.д.
     using_features = ['_DestinationPortNumber_', '_SourcePortNumber_',
@@ -53,6 +44,12 @@ class DataProcessor:
 
     def __init__(self, name, attack_ratio=0.05, attack_label=-1, processing_mode=0,
                  using_features=None, training_data=None, csv_separator='\t', num_classes=2):
+
+        """
+        :param processing_mode:
+                0 - read data from files in given path (non-recursive), type(training_data) is str
+                1 - training_data is iterable
+        """
 
         self.name = name
         self.attack_ratio = attack_ratio
@@ -177,10 +174,11 @@ class Model:
     train_labels = None
     test_labels = None
 
-    def __init__(self, name, model, features, labels, test_size=0.33):
+    def __init__(self, name, model, features, labels, test_size=0.33, attack_label=-1):
 
         self.name = name
         self.model = model()
+        self.attack_label = attack_label
 
         self.__check_model_correctness(model)
 
@@ -192,7 +190,6 @@ class Model:
         self.fit()
 
     def __check_model_correctness(self, model):
-        # todo возможно нужны еще какие-либо методы (например, predict_proba)
         try:
             model.fit()
         except AttributeError:
@@ -207,7 +204,7 @@ class Model:
         except TypeError:
             pass
 
-    def predict_by_proba(self, p_value=0.5, data=None):
+    def predict_proba(self, p_value=0.5, data=None):
         print('Model named "%s" predicting' % self.name)
         if data is None:
             try:
@@ -216,7 +213,7 @@ class Model:
                     lambda x: 1 if x[0] > p_value else 0, 1, pred
                 ), self.test_labels
             except AttributeError:
-                raise TypeError('Model "%s" has no predict_proba method.' % self.name)
+                raise TypeError('Model "%s" has no predict_proba method' % self.name)
         else:
             return self.model.predict_proba(data), None
 
@@ -266,7 +263,7 @@ class ModelsManager:
             self.add_metric(name, metric)
 
     @check_name_correctness
-    def get_metric_result(self, name, model_name, *args, **kwargs):
+    def get_metric_result(self, name, model_name, data_name=None, *args, **kwargs):
 
         def metric_not_found():
             print('Metric named "%s" doesnt exist' % name)
@@ -280,15 +277,30 @@ class ModelsManager:
             for metric in self.models.keys():
                 print(metric)
 
-        # todo учесть случай, когда data_name подан и отличается от ассоциированного с моделью
-        # todo учесть случай, когда для некоторых метрик нужно изменить знаки лейблов
-
         if model_name not in self.models.keys():
             model_not_found()
             return
         else:
             # пока считаем, что все метрики требуют такие обязательные параметры
-            predicted, known = self.models[model_name].predict()
+            if data_name is not None:
+                _, test_features, _, known = self.data[data_name].get_train_test_split()
+                predicted, _ = self.models[model_name].predict(data=test_features)
+
+                if self.data[data_name].attack_label != self.models[model_name].attack_label:
+                    if self.data[data_name].num_classes == 2:
+                        if self.models[model_name].attack_label == -1:
+                            predicted *= -1
+                        else:
+                            known *= -1
+                    else:
+                        print('Model and data have different attack labels. Deal with it yourself.')
+                else:
+                    if self.models[model_name].attack_label == -1:
+                        predicted *= -1
+                        known *= -1
+
+            else:
+                predicted, known = self.models[model_name].predict()
 
         if name in self.metrics.keys():
             return self.metrics[name](known, predicted, *args, **kwargs)
@@ -323,7 +335,8 @@ class ModelsManager:
         if name in self.models.keys():
             if replace:
                 print('Model named "%s" already exist, proceed with replacing' % name)
-                self.models[name] = Model(name, model, features, labels)
+                self.models[name] = Model(name, model, features,
+                                          labels, attack_label=self.data[data_name].attack_label)
             else:
                 print('Model named "%s" already exist, proceed without replacing' % name)
         else:
