@@ -51,12 +51,12 @@ class DataProcessor:
     # todo мб сюда нужно будет добавить методы для скейла, разной обработки и т.д.
     using_features = ['_DestinationPortNumber_', '_SourcePortNumber_',
                       '_Service_', '_Count_', '_SerrorRate_', '_DstHostCount_',
-                      '_DstHostSRVCount_', '_DstHostSameSRCPortRate_', '_SameSRVRate_'
+                      '_DstHostSRVCount_', '_DstHostSameSRCPortRate_', '_SameSRVRate_',
                       '_Label_']  # последней всегда должны идти лейблы (или можно сделать их отдельную передачу)
 
     def __init__(self, name, attack_ratio=0.05, attack_probability=0.9,
                  attack_label=-1, training_mode=0, using_features=None, training_data=None,
-                 csv_separator='\t'):
+                 csv_separator='\t', num_classes=2):
 
         self.name = name
         self.attack_ratio = attack_ratio
@@ -73,6 +73,7 @@ class DataProcessor:
             self.training_mode = training_mode
             self.training_data = training_data
         self.csv_separator = csv_separator
+        self.num_classes = num_classes
 
         self.__check_parameters_correctness()
 
@@ -82,13 +83,32 @@ class DataProcessor:
         if self.training_data is None:
             pass  # todo handle somehow errors
 
+        self.fetch_classes()
+        self.make_all_features_numeric()
+
+    def fetch_classes(self):
+        if self.num_classes == 2:
+            self.training_data[self.using_features[-1]] = self.training_data[self.using_features[-1]].apply(
+                lambda x: self.attack_label if x*self.attack_label > 0 else x
+            )
+
     def get_labels(self):
-        return self.training_data[self.using_features[-1]]
+        return np.array(self.training_data[self.using_features[-1]])
 
     def get_features(self):
         features_without_labels = deepcopy(self.using_features)
-        features_without_labels.pop(self.using_features[-1])
-        return self.training_data[features_without_labels]
+        features_without_labels.remove(self.using_features[-1])
+        return np.array(self.training_data[features_without_labels])
+
+    def make_all_features_numeric(self):
+        for index in self.training_data.columns.values:
+            for item in self.training_data[index]:
+                if item not in [0, '0', '0.0', []]:
+                    try:
+                        float(item)
+                    except (ValueError, TypeError):
+                        self.training_data[index] = fit_label_encoder(self.training_data[index])
+                    break
 
     def get_data_from_path(self):
         all_csv_files = []
@@ -109,11 +129,16 @@ class DataProcessor:
                 df = df.append(df)
 
         try:
-            indices = list(df.columns.values)[:-1]
+            indices = df[:-1]
         except KeyError:  # some of features is not in data or df is empty
             return None
         else:
             return indices[self.using_features]
+
+    def get_train_test_split(self, test_size=0.33):
+        return train_test_split(self.get_features(),
+                                self.get_labels(),
+                                test_size=test_size)
 
     def __check_parameters_type_correctness(self):
         if type(self.attack_ratio) not in (int, float):
@@ -165,15 +190,25 @@ class DataProcessor:
 
 
 class Model:
-    # todo возможно этого класс лишний
+    # todo возможно этот класс лишний
+    train_features = None
+    test_features = None
+    train_labels = None
+    test_labels = None
 
-    def __init__(self, name, model, features, labels):
+    def __init__(self, name, model, features, labels, test_size=0.33):
 
         self.name = name
-        self.model = model
+        self.model = model()
 
         self.__check_model_correctness(model)
-        self.fit(features, labels)
+
+        self.train_features, self.test_features,\
+        self.train_labels, self.test_labels = train_test_split(features,
+                                                               labels,
+                                                               test_size=test_size)
+
+        self.fit()
 
     def __check_model_correctness(self, model):
         # todo возможно нужны еще какие-либо методы (например, predict_proba)
@@ -191,11 +226,17 @@ class Model:
         except TypeError:
             pass
 
-    def fit(self, features, labels):
-        self.model.fit(features, labels)
+    def fit(self):
+        print('Fitting model named "%s"' % self.name)
+        self.model.fit(self.train_features, self.train_labels)
 
-    def predict(self, data):
-        return self.model.predict(data)
+    def predict(self, data=None):
+        print('Model named "%s" predicting' % self.name)
+        if data is None:
+            data = self.test_features
+            return self.model.predict(data), self.test_labels
+        else:
+            return self.model.predict(data), None
 
 
 class ModelsManager:
@@ -205,6 +246,7 @@ class ModelsManager:
     data = {}
 
     def __init__(self):
+        self.data['kyoto2007'] = DataProcessor('kyoto2007')
         self.load_gradient_boosting()
         self.load_logistic_regression()
 
@@ -251,8 +293,10 @@ class ModelsManager:
             really_add_data(self.data)
 
     @check_name_correctness
-    def get_model_average_precision_score(self, name):
-        pass
+    def get_model_average_precision_score(self, name, data_name=None):
+        # todo учесть случай, когда data_name подан и отличается от ассоциированного с моделью
+        predicted, known = self.models[name].predict()
+        return average_precision_score(predicted, known)
 
     @check_name_correctness
     def get_model_precision_recall_fscore_support(self, name):
@@ -270,11 +314,15 @@ class ModelsManager:
     def get_model_auc(self, name):
         pass
 
+    def load_local_data(self):
+        pass
+
     def load_gradient_boosting(self):
-        self.add_model('gb', GradientBoostingClassifier)
+        self.add_model('gb', GradientBoostingClassifier, 'kyoto2007')
 
     def load_logistic_regression(self):
-        self.add_model('lr', LogisticRegression)
+        self.add_model('lr', LogisticRegression, 'kyoto2007')
 
 
 mm = ModelsManager()
+print(mm.get_model_average_precision_score('lr'))
