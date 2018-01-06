@@ -43,7 +43,8 @@ class DataProcessor:
                       '_Label_']  # последней всегда должны идти лейблы (или можно сделать их отдельную передачу)
 
     def __init__(self, name, attack_ratio=0.05, attack_label=-1, processing_mode=0,
-                 using_features=None, training_data=None, csv_separator='\t', num_classes=2):
+                 using_features=None, training_data=None, csv_separator='\t',
+                 num_classes=2, labeled_data=True):
 
         """
         :param processing_mode:
@@ -57,6 +58,9 @@ class DataProcessor:
 
         if using_features is not None:
             self.using_features = using_features
+        else:
+            if not labeled_data:
+                self.using_features.pop()
 
         if training_data is None:
             self.data = CSV_WALKING_PATH
@@ -66,6 +70,7 @@ class DataProcessor:
             self.data = training_data
         self.csv_separator = csv_separator
         self.num_classes = num_classes
+        self.labeled_data = labeled_data
 
         self.__check_parameters_correctness()
 
@@ -82,12 +87,18 @@ class DataProcessor:
             )
 
     def get_labels(self):
-        return np.array(self.data[self.using_features[-1]])
+        if self.labeled_data:
+            return np.array(self.data[self.using_features[-1]])
+        else:
+            raise AttributeError('Cant give labels from labelless dataset')
 
     def get_features(self):
-        features_without_labels = deepcopy(self.using_features)
-        features_without_labels.remove(self.using_features[-1])
-        return np.array(self.data[features_without_labels])
+        if self.labeled_data:
+            features_without_labels = deepcopy(self.using_features)
+            features_without_labels.remove(self.using_features[-1])
+            return np.array(self.data[features_without_labels])
+        else:
+            return np.array(self.data[self.using_features])
 
     def make_all_features_numeric(self):
         for index in self.data.columns.values:
@@ -121,9 +132,13 @@ class DataProcessor:
         return indices[self.using_features]
 
     def get_train_test_split(self, test_size=0.33):
-        return train_test_split(self.get_features(),
-                                self.get_labels(),
-                                test_size=test_size)
+        if self.labeled_data:
+            return train_test_split(self.get_features(),
+                                    self.get_labels(),
+                                    test_size=test_size)
+        else:
+            return train_test_split(self.get_features(),
+                                    test_size=test_size)
 
     def __check_parameters_type_correctness(self):
         if type(self.attack_ratio) not in (int, float):
@@ -174,7 +189,7 @@ class Model:
     train_labels = None
     test_labels = None
 
-    def __init__(self, name, model, features, labels, test_size=0.33, attack_label=-1):
+    def __init__(self, name, model, features, labels, parent, test_size=0.33, attack_label=-1):
 
         self.name = name
         self.model = model()
@@ -186,6 +201,7 @@ class Model:
         self.train_labels, self.test_labels = train_test_split(features,
                                                                labels,
                                                                test_size=test_size)
+        self.parent = parent
 
         self.fit()
 
@@ -227,7 +243,12 @@ class Model:
             data = self.test_features
             return self.model.predict(data), self.test_labels
         else:
-            return self.model.predict(data), None
+            if type(data) is str:
+                features = self.parent.data[data].get_features()
+                labels = self.parent.data[data].get_labels()
+                self.model.predict(features), labels
+            else:
+                return self.model.predict(data), None
 
 
 class ModelsManager:
@@ -336,12 +357,12 @@ class ModelsManager:
             if replace:
                 print('Model named "%s" already exist, proceed with replacing' % name)
                 self.models[name] = Model(name, model, features,
-                                          labels, attack_label=self.data[data_name].attack_label)
+                                          labels, self, attack_label=self.data[data_name].attack_label)
             else:
                 print('Model named "%s" already exist, proceed without replacing' % name)
         else:
             print('Add model named "%s"' % name)
-            self.models[name] = Model(name, model, features, labels)
+            self.models[name] = Model(name, model, features, labels, self)
 
     @check_name_correctness
     def add_data(self, name, replace=False, **kwargs):
