@@ -21,7 +21,7 @@ def fit_label_encoder(not_float):
     return number.fit_transform(not_float)
 
 
-def check_name_correctness(func):
+def name_correct(func):
     def checking_wrapper(self, name, *args, **kwargs):
         if type(name) is not str:
             raise ValueError('Name of model should have type "str"')
@@ -33,10 +33,9 @@ def check_name_correctness(func):
 
 
 class DataProcessor:
-    # todo мб сюда нужно будет добавить методы для скейла, разной обработки и т.д.
     using_features = ['_DestinationPortNumber_', '_SourcePortNumber_', '_Service_', '_Count_', '_SerrorRate_',
                       '_DstHostCount_', '_DstHostSRVCount_', '_DstHostSameSRCPortRate_', '_SameSRVRate_',
-                      '_Label_']  # последней всегда должны идти лейблы (или можно сделать их отдельную передачу)
+                      '_Label_']  # последней всегда должны идти лейблы, если они есть
 
     def __init__(self, name, attack_ratio=0.05, attack_label=-1, processing_mode=0,
                  using_features=None, training_data=None, csv_separator='\t',
@@ -71,7 +70,7 @@ class DataProcessor:
         self.__check_parameters_correctness()
 
         if not self.processing_mode:
-            self.data = self.get_data_from_path()
+            self.data = self.extract_data_from_path()
 
         self.fetch_classes()
         self.make_all_features_numeric()
@@ -106,7 +105,7 @@ class DataProcessor:
                         self.data[index] = fit_label_encoder(self.data[index])
                     break
 
-    def get_data_from_path(self):
+    def extract_data_from_path(self):
         all_csv_files = []
         df = pd.DataFrame()
 
@@ -287,28 +286,31 @@ class ModelsManager:
             self.add_metric(name, metric)
 
     def predict(self, model_name, data_name):
-        return self.models[model_name].predict(self.data[data_name].get_features())
+        try:
+            return self.models[model_name].predict(self.data[data_name].get_features())
+        except KeyError:
+            print('')
 
     def predict_proba(self, model_name, data_name):
         return self.models[model_name].predict_proba(self.data[data_name].get_features())
 
-    @check_name_correctness
+    def metric_not_found(self, metric_name):
+        print('Metric named "%s" doesnt exist' % metric_name)
+        print('Available metrics:')
+        for metric in self.metrics.keys():
+            print(metric)
+
+    def model_not_found(self, model_name):
+        print('Model named "%s" doesnt exist' % model_name)
+        print('Available models:')
+        for model in self.models.keys():
+            print(model)
+
+    @name_correct
     def get_metric_result(self, name, model_name, data_name=None, *args, **kwargs):
 
-        def metric_not_found():
-            print('Metric named "%s" doesnt exist' % name)
-            print('Available metrics:')
-            for metric in self.metrics.keys():
-                print(metric)
-
-        def model_not_found():
-            print('Model named "%s" doesnt exist' % model_name)
-            print('Available models:')
-            for metric in self.models.keys():
-                print(metric)
-
         if model_name not in self.models.keys():
-            model_not_found()
+            self.model_not_found(model_name)
             return
         else:
             # пока считаем, что все метрики требуют такие обязательные параметры
@@ -335,10 +337,10 @@ class ModelsManager:
         if name in self.metrics.keys():
             return self.metrics[name](known, predicted, *args, **kwargs)
         else:
-            metric_not_found()
+            self.metric_not_found(name)
             return
 
-    @check_name_correctness
+    @name_correct
     def add_metric(self, name, metric, replace=False):
 
         if name in self.metrics.keys():
@@ -351,7 +353,7 @@ class ModelsManager:
             print('Add metric named "%s"' % name)
             self.metrics[name] = metric
 
-    @check_name_correctness
+    @name_correct
     def add_model(self, name, model, data_name, replace=False):
 
         try:
@@ -373,7 +375,7 @@ class ModelsManager:
             print('Add model named "%s"' % name)
             self.models[name] = Model(name, model, features, labels, self)
 
-    @check_name_correctness
+    @name_correct
     def add_data(self, name, replace=False, **kwargs):
 
         def really_add_data(data_dict):
