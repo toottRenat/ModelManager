@@ -1,15 +1,15 @@
 import os
-import pandas as pd
-import numpy as np
 
 from copy import deepcopy
-
 from sklearn.preprocessing import LabelEncoder
 from sklearn.model_selection import train_test_split
 from sklearn.ensemble import GradientBoostingClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score, roc_curve, auc, precision_recall_fscore_support, \
     precision_recall_curve, average_precision_score
+
+import pandas as pd
+import numpy as np
 
 # тут лежат разные параметры, которые влияют на работу системы
 
@@ -23,7 +23,7 @@ def fit_label_encoder(not_float):
 
 def name_correct(func):
     def checking_wrapper(self, name, *args, **kwargs):
-        if type(name) is not str:
+        if not isinstance(name, str):
             raise ValueError('Name of model should have type "str"')
 
         result = func(self, name, *args, **kwargs)
@@ -92,8 +92,8 @@ class DataProcessor:
             features_without_labels = deepcopy(self.using_features)
             features_without_labels.remove(self.using_features[-1])
             return np.array(self.data[features_without_labels])
-        else:
-            return np.array(self.data[self.using_features])
+
+        return np.array(self.data[self.using_features])
 
     def make_all_features_numeric(self):
         for index in self.data.columns.values:
@@ -131,12 +131,12 @@ class DataProcessor:
             return train_test_split(self.get_features(),
                                     self.get_labels(),
                                     test_size=test_size)
-        else:
-            return train_test_split(self.get_features(),
-                                    test_size=test_size)
+
+        return train_test_split(self.get_features(),
+                                test_size=test_size)
 
     def __check_parameters_type_correctness(self):
-        if type(self.attack_ratio) not in (int, float):
+        if not isinstance(self.attack_ratio, (int, float)):
             raise ValueError('Parameter attack_ratio should has type int or float')
 
         try:
@@ -149,7 +149,7 @@ class DataProcessor:
         except TypeError:
             raise ValueError('Parameter training_data should be iterable')
 
-        if type(self.csv_separator) is not str:
+        if not isinstance(self.csv_separator, str):
             raise ValueError('Parameter csv_separator should has type str')
 
     def __check_parameters_value_correctness(self):
@@ -166,10 +166,10 @@ class DataProcessor:
 
     def __check_parameters_consistency(self):
         if self.processing_mode == 0:
-            if type(self.data) is not str:
+            if not isinstance(self.data, str):
                 raise ValueError('Parameter training_data should have type str when processing_mode == 0')
         elif self.processing_mode == 1:
-            if type(self.data) is str:
+            if isinstance(self.data, str):
                 raise ValueError('Parameter training_data should not have type str when processing_mode == 1')
 
     def __check_parameters_correctness(self):
@@ -245,12 +245,11 @@ class Model:
             data = self.test_features
             return self.model.predict(data), self.test_labels
         else:
-            if type(data) is str:
+            if isinstance(data, str):
                 features = self.parent.data[data].get_features()
                 labels = self.parent.data[data].get_labels()
-                self.model.predict(features), labels
-            else:
-                return self.model.predict(data), None
+                return self.model.predict(features), labels
+            return self.model.predict(data), None
 
 
 class ModelsManager:
@@ -297,13 +296,13 @@ class ModelsManager:
     def metric_not_found(self, metric_name):
         print('Metric named "%s" doesnt exist' % metric_name)
         print('Available metrics:')
-        for metric in self.metrics.keys():
+        for metric in self.metrics:
             print(metric)
 
     def model_not_found(self, model_name):
         print('Model named "%s" doesnt exist' % model_name)
         print('Available models:')
-        for model in self.models.keys():
+        for model in self.models:
             print(model)
 
     @name_correct
@@ -336,9 +335,8 @@ class ModelsManager:
 
         if name in self.metrics.keys():
             return self.metrics[name](known, predicted, *args, **kwargs)
-        else:
-            self.metric_not_found(name)
-            return
+        self.metric_not_found(name)
+        return
 
     @name_correct
     def add_metric(self, name, metric, replace=False):
@@ -379,7 +377,7 @@ class ModelsManager:
     def add_data(self, name, replace=False, **kwargs):
 
         def really_add_data(data_dict):
-            dp = DataProcessor(name, **kwargs)  # mb nada **
+            dp = DataProcessor(name, **kwargs)
             if dp is not None:
                 data_dict[name] = dp
             else:
@@ -397,12 +395,12 @@ class ModelsManager:
             really_add_data(self.data)
 
     def load_gradient_boosting(self):
-        self.add_model('gb_95-5', GradientBoostingClassifier, 'kyoto2007')
+        self.add_model('gb_95-5_notime', GradientBoostingClassifier, 'kyoto2007')
 
     def load_logistic_regression(self):
-        self.add_model('lr_95-5', LogisticRegression, 'kyoto2007')
+        self.add_model('lr_95-5_notime', LogisticRegression, 'kyoto2007')
 
 
 if __name__ == '__main__':
     mm = ModelsManager()
-    print(mm.get_metric_result('average_precision_score', 'gb_95-5'))
+    print(mm.get_metric_result('average_precision_score', 'gb_95-5_notime'))

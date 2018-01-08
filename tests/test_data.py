@@ -1,7 +1,7 @@
 import unittest
 import os
 import sys
-import pandas as pd
+import numpy as np
 
 os.chdir('..')
 sys.path.append(os.getcwd())
@@ -9,11 +9,11 @@ sys.path.append(os.getcwd())
 from models import DataProcessor
 
 
-class Test(unittest.TestCase):
+class TestData(unittest.TestCase):
 
     def setUp(self):
         self.data = DataProcessor('for_test')
-        self.data_in_path = self.data.extract_data_from_path()
+        self.data_in_path = self.data.data
 
     def test_checking_functions(self):
         with self.assertRaises(ValueError):
@@ -52,7 +52,20 @@ class Test(unittest.TestCase):
                 DataProcessor('for_test', labeled_data=item)
 
     def test_getters(self):
-        pass
+        self.assertEqual(
+            self.data.get_features().all(),
+            np.array(self.data_in_path[self.data_in_path.columns.values[:-1]]).all()
+        )
+        self.assertEqual(
+            self.data.get_labels().all(),
+            np.array(self.data_in_path[self.data_in_path.columns.values[-1]]).all()
+        )
+
+        for test_size in range(1, 10):
+            test_size /= 10
+            _, test_features, _, test_labels = self.data.get_train_test_split(test_size=test_size)
+            self.assertAlmostEqual(test_features.shape[0]/self.data_in_path.shape[0], test_size, places=5)
+            self.assertAlmostEqual(test_labels.shape[0]/self.data_in_path.shape[0], test_size, places=5)
 
 
 if __name__ == '__main__':
