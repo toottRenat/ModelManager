@@ -11,9 +11,7 @@ from sklearn.metrics import accuracy_score, roc_curve, auc, precision_recall_fsc
 import pandas as pd
 import numpy as np
 
-# тут лежат разные параметры, которые влияют на работу системы
-
-CSV_WALKING_PATH = os.path.split(__file__)[0] + '/Kyoto2007'  # путь с файлами для обучение моделей
+CSV_WALKING_PATH = os.path.split(__file__)[0] + '/Kyoto2007'  # file path with default dataset
 
 
 def fit_label_encoder(not_float):
@@ -38,13 +36,13 @@ class DataProcessor:
                       '_Label_']  # последней всегда должны идти лейблы, если они есть
 
     def __init__(self, name, attack_ratio=0.05, attack_label=-1, processing_mode=0,
-                 using_features=None, training_data=None, csv_separator='\t',
+                 data=None, using_features=None, csv_separator='\t',
                  num_classes=2, labeled_data=True):
 
         """
         :param processing_mode:
-                0 - read data from files in given path (non-recursive), type(training_data) is str
-                1 - training_data is iterable
+                0 - read data from files in given path (non-recursive), type(data) is str
+                1 - data is iterable
         """
 
         self.name = name
@@ -57,12 +55,12 @@ class DataProcessor:
             if not labeled_data:
                 self.using_features.pop()
 
-        if training_data is None:
+        if data is None:
             self.data = CSV_WALKING_PATH
             self.processing_mode = 0
         else:
             self.processing_mode = processing_mode
-            self.data = training_data
+            self.data = data
         self.csv_separator = csv_separator
         self.num_classes = num_classes
         self.labeled_data = labeled_data
@@ -70,10 +68,10 @@ class DataProcessor:
         self.__check_parameters_correctness()
 
         if not self.processing_mode:
-            self.data = self.extract_data_from_path()
+            self.extract_data_from_path()
 
         self.fetch_classes()
-        self.make_all_features_numeric()
+        self.__make_all_features_numeric()
 
     def fetch_classes(self):
         if self.num_classes == 2:
@@ -95,7 +93,7 @@ class DataProcessor:
 
         return np.array(self.data[self.using_features])
 
-    def make_all_features_numeric(self):
+    def __make_all_features_numeric(self):
         for index in self.data.columns.values:
             for item in self.data[index]:
                 if item not in [0, '0', '0.0', []]:
@@ -124,7 +122,7 @@ class DataProcessor:
                 df = df.append(df)
 
         indices = df[:-1]
-        return indices[self.using_features]
+        self.data = indices[self.using_features]
 
     def get_train_test_split(self, test_size=0.33):
         if self.labeled_data:
@@ -184,13 +182,13 @@ class Model:
     train_labels = None
     test_labels = None
 
-    def __init__(self, name, model, features, labels, parent, test_size=0.33, attack_label=-1):
+    def __init__(self, name, ml_algorithm, features, labels, parent, test_size=0.33, attack_label=-1):
 
         self.name = name
-        self.model = model()
+        self.ml_algorithm = ml_algorithm()
         self.attack_label = attack_label
 
-        self.__check_model_correctness(model)
+        self.__check_ml_algorithm_correctness(ml_algorithm)
 
         self.train_features, self.test_features, \
         self.train_labels, self.test_labels = train_test_split(features,
@@ -200,56 +198,56 @@ class Model:
 
         self.fit()
 
-    def __check_model_correctness(self, model):
+    def __check_ml_algorithm_correctness(self, ml_algorithm):
         try:
-            model.fit()
+            ml_algorithm.fit()
         except AttributeError:
             raise TypeError('Model "%s" has no fit method.' % self.name)
         except TypeError:
             pass
 
         try:
-            model.predict()
+            ml_algorithm.predict()
         except AttributeError:
             raise TypeError('Model "%s" has no predict method.' % self.name)
         except TypeError:
             pass
 
         try:
-            model.predict_proba()
+            ml_algorithm.predict_proba()
         except AttributeError:
             print('Warning:\nModel "%s" has no predict_proba method.' % self.name)
         except TypeError:
             pass
 
     def predict_proba(self, p_value=0.5, data=None):
-        print('Model named "%s" predicting' % self.name)
+        print('Model named "%s" predicting proba' % self.name)
         if data is None:
             try:
-                pred = self.model.predict_proba(self.test_features)
+                predicted = self.ml_algorithm.predict_proba(self.test_features)
                 return np.apply_along_axis(
-                    lambda x: 1 if x[0] > p_value else 0, 1, pred
+                    lambda x: 1 if x[0] > p_value else 0, 1, predicted  # this mb a bit wrong
                 ), self.test_labels
             except AttributeError:
                 raise TypeError('Model "%s" has no predict_proba method' % self.name)
         else:
-            return self.model.predict_proba(data), None
+            return self.ml_algorithm.predict_proba(data), None
 
     def fit(self):
         print('Fitting model named "%s"' % self.name)
-        self.model.fit(self.train_features, self.train_labels)
+        self.ml_algorithm.fit(self.train_features, self.train_labels)
 
     def predict(self, data=None):
         print('Model named "%s" predicting' % self.name)
         if data is None:
             data = self.test_features
-            return self.model.predict(data), self.test_labels
+            return self.ml_algorithm.predict(data), self.test_labels
         else:
             if isinstance(data, str):
                 features = self.parent.data[data].get_features()
                 labels = self.parent.data[data].get_labels()
-                return self.model.predict(features), labels
-            return self.model.predict(data), None
+                return self.ml_algorithm.predict(features), labels
+            return self.ml_algorithm.predict(data), None
 
 
 class ModelsManager:
@@ -259,12 +257,12 @@ class ModelsManager:
 
     def __init__(self):
         self.data['kyoto2007'] = DataProcessor('kyoto2007')
-        self.load_gradient_boosting()
-        self.load_logistic_regression()
+        self.__load_gradient_boosting()
+        self.__load_logistic_regression()
 
-        self.add_default_metrics()
+        self.__add_default_metrics()
 
-    def add_default_metrics(self):
+    def __add_default_metrics(self):
         default_metric_names = [
             'average_precision_score',
             'accuracy_score',
@@ -284,32 +282,49 @@ class ModelsManager:
         for name, metric in zip(default_metric_names, default_metrics):
             self.add_metric(name, metric)
 
+    @name_correct
     def predict(self, model_name, data_name):
         try:
             return self.models[model_name].predict(self.data[data_name].get_features())
         except KeyError:
-            print('')
+            if model_name in self.models.keys():
+                self.__data_not_found(data_name)
+            else:
+                self.__model_not_found(model_name)
 
+    @name_correct
     def predict_proba(self, model_name, data_name):
-        return self.models[model_name].predict_proba(self.data[data_name].get_features())
+        try:
+            return self.models[model_name].predict_proba(self.data[data_name].get_features())
+        except KeyError:
+            if model_name in self.models.keys():
+                self.__data_not_found(data_name)
+            else:
+                self.__model_not_found(model_name)
 
-    def metric_not_found(self, metric_name):
+    def __data_not_found(self, data_name):
+        print('Dataset named "%s" doesnt exist' % data_name)
+        print('Available data sets:')
+        for data in self.data:
+            print(data)
+
+    def __metric_not_found(self, metric_name):
         print('Metric named "%s" doesnt exist' % metric_name)
         print('Available metrics:')
         for metric in self.metrics:
             print(metric)
 
-    def model_not_found(self, model_name):
+    def __model_not_found(self, model_name):
         print('Model named "%s" doesnt exist' % model_name)
         print('Available models:')
         for model in self.models:
             print(model)
 
     @name_correct
-    def get_metric_result(self, name, model_name, data_name=None, *args, **kwargs):
+    def get_metric_result(self, metric_name, model_name, data_name=None, *args, **kwargs):
 
         if model_name not in self.models.keys():
-            self.model_not_found(model_name)
+            self.__model_not_found(model_name)
             return
         else:
             # пока считаем, что все метрики требуют такие обязательные параметры
@@ -333,10 +348,9 @@ class ModelsManager:
             else:
                 predicted, known = self.models[model_name].predict()
 
-        if name in self.metrics.keys():
-            return self.metrics[name](known, predicted, *args, **kwargs)
-        self.metric_not_found(name)
-        return
+        if metric_name in self.metrics.keys():
+            return self.metrics[metric_name](known, predicted, *args, **kwargs)
+        self.__metric_not_found(metric_name)
 
     @name_correct
     def add_metric(self, name, metric, replace=False):
@@ -352,26 +366,27 @@ class ModelsManager:
             self.metrics[name] = metric
 
     @name_correct
-    def add_model(self, name, model, data_name, replace=False):
+    def add_model(self, model_name, ml_algorithm, data_name, replace=False):
 
         try:
             features = self.data[data_name].get_features()
             labels = self.data[data_name].get_labels()
         except KeyError:
             print('Model named "%s" cant be added since provided data_name "%s" doesnt exist'
-                  % (name, data_name))
+                  % (model_name, data_name))
             return
 
-        if name in self.models.keys():
+        if model_name in self.models.keys():
             if replace:
-                print('Model named "%s" already exist, proceed with replacing' % name)
-                self.models[name] = Model(name, model, features,
-                                          labels, self, attack_label=self.data[data_name].attack_label)
+                print('Model named "%s" already exist, proceed with replacing' % model_name)
+                self.models[model_name] = Model(model_name, ml_algorithm, features,
+                                                labels, self,
+                                                attack_label=self.data[data_name].attack_label)
             else:
-                print('Model named "%s" already exist, proceed without replacing' % name)
+                print('Model named "%s" already exist, proceed without replacing' % model_name)
         else:
-            print('Add model named "%s"' % name)
-            self.models[name] = Model(name, model, features, labels, self)
+            print('Add model named "%s"' % model_name)
+            self.models[model_name] = Model(model_name, ml_algorithm, features, labels, self)
 
     @name_correct
     def add_data(self, name, replace=False, **kwargs):
@@ -394,10 +409,10 @@ class ModelsManager:
             print('Add data named "%s" ' % name)
             really_add_data(self.data)
 
-    def load_gradient_boosting(self):
+    def __load_gradient_boosting(self):
         self.add_model('gb_95-5_notime', GradientBoostingClassifier, 'kyoto2007')
 
-    def load_logistic_regression(self):
+    def __load_logistic_regression(self):
         self.add_model('lr_95-5_notime', LogisticRegression, 'kyoto2007')
 
 
